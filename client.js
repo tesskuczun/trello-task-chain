@@ -55,13 +55,26 @@ function detailBadges(b, id) {
   var i = TC.info(b, id);
   if (!i.inChain) return [];
   if (i.prev) {
-    return [{
-      title: i.done ? 'Previous task' : (i.blocked ? 'Blocked by' : 'Previous task done'),
-      text: TC.truncate(TC.name(b, i.prev), 40),
-      color: i.done ? null : (i.blocked ? 'red' : 'green'),
-      icon: i.blocked && !i.done ? TC.ICONS.lock : TC.ICONS.check,
-      callback: openPicker
-    }];
+    // Every unfinished task before this one, numbered in the order to do them.
+    var blockers = i.ancestors.filter(function (a) { return !TC.isDone(b, a); });
+    if (i.done || !blockers.length) {
+      return [{
+        title: i.done ? 'Previous task' : 'Ready',
+        text: i.done ? TC.truncate(TC.name(b, i.prev), 40) : 'All earlier tasks are done',
+        color: i.done ? null : 'green',
+        icon: TC.ICONS.check,
+        callback: openPicker
+      }];
+    }
+    return blockers.map(function (a, n) {
+      return {
+        title: n === 0 ? 'Blocked by' : ' ',
+        text: (n + 1) + '. ' + TC.truncate(TC.name(b, a), 40),
+        color: 'red',
+        icon: TC.ICONS.lock,
+        callback: function (t2) { return t2.showCard(a); }
+      };
+    });
   }
   var n = i.descendants.length;
   return [{
@@ -155,13 +168,14 @@ TrelloPowerUp.initialize({
 
   'card-detail-badges': function (t) { return dynamicList(t, detailBadges); },
 
-  // The "Task order" section inside an open card.
+  // Section inside an open card listing the tasks that wait on this one.
+  // (Tasks that must happen first are listed at the top under "Blocked by".)
   'card-back-section': function (t) {
     watch(t);
     return TC.load(t).then(function (b) {
-      if (!TC.info(b, t.getContext().card).inChain) return;
+      if (!TC.info(b, t.getContext().card).descendants.length) return;
       return {
-        title: 'Task order',
+        title: 'Tasks waiting on this one',
         icon: TC.ICONS.chain,
         content: { type: 'iframe', url: t.signUrl('./section.html'), height: 140 }
       };

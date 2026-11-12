@@ -35,21 +35,8 @@ function render() {
     html += '<div class="goal">' + ICON.target + '<span>' + esc(TC.name(b, me)) + '</span>' +
       '<span class="tag">Step ' + i.step + ' of ' + i.total + (goalTag ? ' · ' + goalTag : '') + '</span></div>';
 
-    // Everything that must happen first, numbered in order, stacked underneath.
-    if (i.ancestors.length) {
-      html += '<div class="label">Do these first, in order:</div><div class="stack">';
-      i.ancestors.forEach(function (id, n) {
-        var done = TC.isDone(b, id);
-        var isNext = id === i.nextUp;
-        var cls = done ? 'done' : (isNext ? 'next' : 'wait');
-        var num = done ? ICON.check : String(n + 1);
-        var status = done ? 'Done' : (isNext ? 'Do this next' : ICON.lock + ' Waiting');
-        html += row(cls, num, id, TC.name(b, id), status);
-      });
-      html += '</div>';
-    }
-
-    // Tasks that wait on this one.
+    // Tasks that wait on this one, stacked underneath in order.
+    // (Tasks that must happen first are shown at the top under "Blocked by".)
     if (i.descendants.length) {
       var n = i.descendants.length;
       html += '<div class="label flag">' + ICON.flag + ' ' + n + (n === 1 ? ' task waits' : ' tasks wait') +
