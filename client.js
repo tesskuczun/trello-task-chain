@@ -44,10 +44,10 @@ function frontBadges(b, id) {
     out.push(i.blocked
       ? { text: 'Blocked by: ' + TC.truncate(TC.name(b, i.prev), 25), color: 'red', icon: TC.ICONS.lock }
       : { text: 'Ready', color: 'green', icon: TC.ICONS.check });
-  } else {
-    var n = i.descendants.length;
-    out.push({ text: n + (n === 1 ? ' task waits' : ' tasks wait') + ' on this', color: 'orange', icon: TC.ICONS.flag });
   }
+  // Flag every unfinished card that other tasks wait on.
+  var n = i.descendants.length;
+  if (n) out.push({ text: n + (n === 1 ? ' task waits' : ' tasks wait') + ' on this', color: 'orange', icon: TC.ICONS.flag });
   return out;
 }
 
