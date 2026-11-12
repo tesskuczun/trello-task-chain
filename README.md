@@ -1,59 +1,47 @@
-# Task Chain: a Trello Power-Up for sequential tasks
+# Task Chain: a Trello Power-Up for tasks done in order
 
-Link each card to the task that must finish before it. Cards show a red
-**Blocked by: …** badge until the previous task is done, then a green **Ready** badge.
+Link each card to the task that must finish before it. Trello then shows:
+
+- **On the board:** "Step 2 of 4", a red lock badge **Blocked by: …** until the
+  previous task is done, then a green **Ready** badge. The first task in a chain
+  gets an orange flag: **3 tasks wait on this**.
+- **Inside a card:** a **Task order** section. The card sits on top, with every
+  task that must happen first stacked underneath, numbered in order. The next one
+  to do is highlighted. Tasks waiting on this card are listed after. Click any
+  task name to open it.
+
+Badges update about 1–2 seconds after a task is finished.
 
 ## Files
 
 | File | Purpose |
 |---|---|
-| `index.html` | The iframe connector Trello loads |
-| `client.js` | All the Power-Up logic |
-| `icon.svg` | Button and badge icon |
+| `index.html` | The hidden page Trello loads |
+| `shared.js` | Chain logic shared by both pages |
+| `client.js` | Buttons, badges, and the auto-update |
+| `section.html`, `section.js` | The "Task order" section inside a card |
+| `icon.svg`, `lock.svg`, `check.svg`, `flag.svg` | Icons |
 
 ## Install
 
-1. **Host the files over HTTPS.** GitHub Pages is free:
-   - Create a public repo, upload `index.html`, `client.js` and `icon.svg`.
-   - Repo **Settings → Pages → Deploy from branch → main / root**.
-   - Your URL will look like `https://<username>.github.io/<repo>/index.html`.
-2. **Register the Power-Up** at <https://trello.com/power-ups/admin>:
-   - Click **New**, pick your Workspace, and set **Iframe connector URL** to the
-     `index.html` URL from step 1.
-   - On the **Capabilities** tab, turn on **Card buttons**, **Card badges** and
-     **Card detail badges**.
-3. **Add it to a board:** open the board → **Power-Ups** → **Custom** → add *Task Chain*.
+1. Host all files over HTTPS (for example GitHub Pages).
+2. Register the Power-Up at <https://trello.com/power-ups/admin> with the hosted
+   `index.html` as the iframe connector URL.
+3. Turn on **Card buttons**, **Card badges**, **Card detail badges** and
+   **Card back section**.
+4. Add it to a board: **Power-Ups → Custom → Task Chain → Add**.
 
 ## Use
 
-- Open a card and click **Previous task** (in the Power-Ups button area).
-- Search for and pick the card that must finish first. Pick **✕ Clear previous task** to unlink.
-- Click the badge inside an open card to change the link.
+Open a card → **Power-ups** → **Previous task** → pick the card that must finish
+first. Pick **✕ Clear previous task** to unlink.
 
-A previous task counts as **done** when any of these is true:
-- it's in a list named Done, Complete, Completed, Finished, Shipped or Archived (edit
-  `DONE_LIST_NAMES` at the top of `client.js` to change this);
-- its due date is ticked complete;
-- it's archived or deleted.
+A task counts as **done** when it's in a list named Done, Complete, Completed,
+Finished, Shipped or Archived (edit `DONE_LIST_NAMES` in `shared.js`), when its
+due date is ticked complete, or when it's archived.
 
-Picking a previous task that would create a loop (A waits on B, B waits on A) is refused.
+## Limits
 
-## Limitations
-
-- Power-Ups only run while someone has the board open, so this **shows** order but
-  can't move cards on its own. Badges re-check about every 10 seconds.
-- Each card has one previous task (a chain, not "wait for A *and* B").
-- Links are stored per-card in Trello's Power-Up data, so they only exist on boards
-  where the Power-Up is enabled.
-
-## Optional: auto-advance with Butler (Automation)
-
-To move the next card forward automatically, add a matching URL link between the cards
-(paste the next card's link into the previous card as an attachment), then create a rule
-in **Automation → Rules**:
-
-- **Trigger:** when a card is moved into list "Done"
-- **Action:** *for the first card linked in the card's attachments*, move the card to the
-  top of list "To Do"
-
-The Power-Up badges and the Butler rule work independently; use either or both.
+- Each card waits on one task. Several cards can wait on the same task.
+- Trello stores about 4 KB of links per board (roughly 80 links).
+- Updates happen while someone has the board open in Trello.

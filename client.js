@@ -1,79 +1,96 @@
-/* global TrelloPowerUp */
+/* global TrelloPowerUp, TC */
 'use strict';
 
-// ---------------------------------------------------------------------------
-// Settings
-// ---------------------------------------------------------------------------
-
-// A previous task counts as complete when it sits in a list with one of these
-// names (case-insensitive), when its due date is marked complete, or when it
-// has been archived / removed from the board.
-var DONE_LIST_NAMES = ['done', 'complete', 'completed', 'finished', 'shipped', 'archived'];
-
-// How often (seconds) badges re-check status while the board is open.
-var REFRESH_SECONDS = 10;
-
-// Key used to store the link on each card (shared = visible to all members).
-var KEY = 'prevTaskId';
-
-var ICON = new URL('./icon.svg', window.location.href).toString();
+// How often (ms) the Power-Up checks the board for finished tasks.
+var WATCH_MS = 1500;
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Watcher: notices when a task is finished (moved to Done, ticked, archived)
+// and makes Trello redraw every badge straight away.
 // ---------------------------------------------------------------------------
 
-function isDoneList(list) {
-  return !!list && DONE_LIST_NAMES.indexOf(String(list.name).trim().toLowerCase()) !== -1;
-}
+var watchT = null;
+var lastSig = null;
+var watching = false;
 
-// Load everything we need about the board in one go.
-function loadBoard(t) {
-  return Promise.all([
-    t.cards('id', 'name', 'idList', 'closed', 'dueComplete'),
-    t.lists('id', 'name')
-  ]).then(function (res) {
-    var cardsById = {};
-    res[0].forEach(function (c) { cardsById[c.id] = c; });
-    var listsById = {};
-    res[1].forEach(function (l) { listsById[l.id] = l; });
-    return { cards: res[0], cardsById: cardsById, listsById: listsById };
-  });
-}
-
-// Work out the status of the current card's previous task.
-// Returns null if the card has no previous task.
-function getStatus(t) {
-  return t.get('card', 'shared', KEY).then(function (prevId) {
-    if (!prevId) return null;
-    return loadBoard(t).then(function (board) {
-      var prev = board.cardsById[prevId];
-      if (!prev) {
-        // Not among the board's open cards: archived, deleted or moved away.
-        return { prevId: prevId, name: 'previous task (archived/removed)', done: true };
+function watch(t) {
+  watchT = t;
+  if (watching) return;
+  watching = true;
+  setInterval(function () {
+    if (!watchT) return;
+    TC.load(watchT).then(function (b) {
+      var sig = TC.signature(b);
+      if (lastSig !== null && sig !== lastSig) {
+        // Changing Power-Up data makes Trello redraw all badges and sections.
+        watchT.set('board', 'private', 'tick', Date.now()).catch(function () {});
       }
-      var done = !!prev.closed || !!prev.dueComplete || isDoneList(board.listsById[prev.idList]);
-      return { prevId: prevId, name: prev.name, done: done };
+      lastSig = sig;
+    }).catch(function () {});
+  }, WATCH_MS);
+}
+
+// ---------------------------------------------------------------------------
+// Badges
+// ---------------------------------------------------------------------------
+
+function frontBadges(b, id) {
+  var i = TC.info(b, id);
+  if (!i.inChain) return [];
+  var out = [];
+  if (i.total > 1) out.push({ text: 'Step ' + i.step + ' of ' + i.total });
+  if (i.done) return out;
+  if (i.prev) {
+    out.push(i.blocked
+      ? { text: 'Blocked by: ' + TC.truncate(TC.name(b, i.prev), 25), color: 'red', icon: TC.ICONS.lock }
+      : { text: 'Ready', color: 'green', icon: TC.ICONS.check });
+  } else {
+    var n = i.descendants.length;
+    out.push({ text: n + (n === 1 ? ' task waits' : ' tasks wait') + ' on this', color: 'orange', icon: TC.ICONS.flag });
+  }
+  return out;
+}
+
+function detailBadges(b, id) {
+  var i = TC.info(b, id);
+  if (!i.inChain) return [];
+  if (i.prev) {
+    return [{
+      title: i.done ? 'Previous task' : (i.blocked ? 'Blocked by' : 'Previous task done'),
+      text: TC.truncate(TC.name(b, i.prev), 40),
+      color: i.done ? null : (i.blocked ? 'red' : 'green'),
+      icon: i.blocked && !i.done ? TC.ICONS.lock : TC.ICONS.check,
+      callback: openPicker
+    }];
+  }
+  var n = i.descendants.length;
+  return [{
+    title: 'First task',
+    text: n + (n === 1 ? ' task waits' : ' tasks wait') + ' on this',
+    color: i.done ? null : 'orange',
+    icon: TC.ICONS.flag,
+    callback: openPicker
+  }];
+}
+
+// Each badge re-checks itself every 10 s as a backup to the watcher.
+function dynamicList(t, build) {
+  var id = t.getContext().card;
+  watch(t);
+  return TC.migrate(t).then(function () { return TC.load(t); }).then(function (b) {
+    var first = build(b, id);
+    return first.map(function (badge, idx) {
+      return {
+        dynamic: function () {
+          return TC.load(t).then(function (b2) {
+            var now = build(b2, id)[idx] || { text: '' };
+            now.refresh = 10;
+            return now;
+          });
+        }
+      };
     });
   });
-}
-
-function truncate(s, n) {
-  s = String(s || '');
-  return s.length > n ? s.slice(0, n - 1) + '…' : s;
-}
-
-// Walk the chain backwards from startId. Returns true if it reaches targetId,
-// meaning that linking target -> start would create a loop.
-function chainReaches(t, startId, targetId, board) {
-  var seen = {};
-  function step(id) {
-    if (!id || seen[id]) return Promise.resolve(false);
-    if (id === targetId) return Promise.resolve(true);
-    seen[id] = true;
-    if (!board.cardsById[id]) return Promise.resolve(false);
-    return t.get(id, 'shared', KEY).then(step, function () { return false; });
-  }
-  return step(startId);
 }
 
 // ---------------------------------------------------------------------------
@@ -82,53 +99,44 @@ function chainReaches(t, startId, targetId, board) {
 
 function openPicker(t) {
   var me = t.getContext().card;
-  return Promise.all([loadBoard(t), t.get('card', 'shared', KEY)]).then(function (res) {
-    var board = res[0];
-    var currentPrev = res[1];
-
-    var candidates = board.cards.filter(function (c) { return c.id !== me; });
-
+  return TC.load(t).then(function (b) {
+    var currentPrev = b.links[me];
     var items = [];
+
     if (currentPrev) {
       items.push({
         text: '✕ Clear previous task',
         callback: function (t2) {
-          return t2.remove('card', 'shared', KEY).then(function () { return t2.closePopup(); });
+          return TC.saveLink(t2, me, null).then(function () { return t2.closePopup(); });
         }
       });
     }
 
-    candidates.forEach(function (c) {
-      var list = board.listsById[c.idList];
+    b.cards.filter(function (c) { return c.id !== me; }).forEach(function (c) {
+      var list = TC.listName(b, c.id);
       items.push({
-        text: (c.id === currentPrev ? '✓ ' : '') + c.name + (list ? '  ·  ' + list.name : ''),
+        text: (c.id === currentPrev ? '✓ ' : '') + c.name + (list ? '  ·  ' + list : ''),
         callback: function (t2) {
-          return chainReaches(t2, c.id, me, board).then(function (loop) {
-            if (loop) {
-              return t2.alert({
-                message: 'That would create a loop: "' + truncate(c.name, 40) + '" already waits on this card.',
-                duration: 6,
-                display: 'error'
-              });
-            }
-            return t2.set('card', 'shared', KEY, c.id).then(function () { return t2.closePopup(); });
+          // Refuse links that would make a loop.
+          if (c.id === me || TC.ancestors(b, c.id).indexOf(me) !== -1) {
+            return t2.alert({
+              message: 'That would make a loop: "' + TC.truncate(c.name, 40) + '" already waits on this card.',
+              duration: 6, display: 'error'
+            });
+          }
+          return TC.saveLink(t2, me, c.id).then(function () { return t2.closePopup(); }, function (e) {
+            return t2.alert({ message: e.message, duration: 6, display: 'error' });
           });
         }
       });
     });
 
-    if (!candidates.length) {
-      items.push({ text: 'No other cards on this board yet.' });
-    }
+    if (items.length === (currentPrev ? 1 : 0)) items.push({ text: 'No other cards on this board yet.' });
 
     return t.popup({
       title: 'Previous task (must finish first)',
       items: items,
-      search: {
-        count: 10,
-        placeholder: 'Search cards…',
-        empty: 'No matching cards'
-      }
+      search: { count: 10, placeholder: 'Search cards…', empty: 'No matching cards' }
     });
   });
 }
@@ -138,49 +146,25 @@ function openPicker(t) {
 // ---------------------------------------------------------------------------
 
 TrelloPowerUp.initialize({
-  'card-buttons': function () {
-    return [{
-      icon: ICON,
-      text: 'Previous task',
-      callback: openPicker
-    }];
+  'card-buttons': function (t) {
+    watch(t);
+    return [{ icon: TC.ICONS.chain, text: 'Previous task', callback: openPicker }];
   },
 
-  // Badges on the front of the card (board view).
-  'card-badges': function (t) {
-    return t.get('card', 'shared', KEY).then(function (prevId) {
-      if (!prevId) return [];
-      return [{
-        dynamic: function () {
-          return getStatus(t).then(function (s) {
-            if (!s) return { text: '', refresh: REFRESH_SECONDS };
-            return s.done
-              ? { text: 'Ready', color: 'green', icon: ICON, refresh: REFRESH_SECONDS }
-              : { text: 'Blocked by: ' + truncate(s.name, 25), color: 'red', icon: ICON, refresh: REFRESH_SECONDS };
-          });
-        }
-      }];
-    });
-  },
+  'card-badges': function (t) { return dynamicList(t, frontBadges); },
 
-  // Badges inside the opened card.
-  'card-detail-badges': function (t) {
-    return t.get('card', 'shared', KEY).then(function (prevId) {
-      if (!prevId) return [];
-      return [{
-        dynamic: function () {
-          return getStatus(t).then(function (s) {
-            if (!s) return { title: 'Previous task', text: 'None', callback: openPicker, refresh: REFRESH_SECONDS };
-            return {
-              title: s.done ? 'Previous task done' : 'Blocked by',
-              text: truncate(s.name, 40),
-              color: s.done ? 'green' : 'red',
-              callback: openPicker,
-              refresh: REFRESH_SECONDS
-            };
-          });
-        }
-      }];
+  'card-detail-badges': function (t) { return dynamicList(t, detailBadges); },
+
+  // The "Task order" section inside an open card.
+  'card-back-section': function (t) {
+    watch(t);
+    return TC.load(t).then(function (b) {
+      if (!TC.info(b, t.getContext().card).inChain) return;
+      return {
+        title: 'Task order',
+        icon: TC.ICONS.chain,
+        content: { type: 'iframe', url: t.signUrl('./section.html'), height: 140 }
+      };
     });
   }
 });
