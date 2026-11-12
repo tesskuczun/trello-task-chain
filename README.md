@@ -31,7 +31,7 @@ Link each card to the task that must finish before it. Cards show a red
 - Click the badge inside an open card to change the link.
 
 A previous task counts as **done** when any of these is true:
-- it's in a list named Done, Complete, Completed, Finished or Shipped (edit
+- it's in a list named Done, Complete, Completed, Finished, Shipped or Archived (edit
   `DONE_LIST_NAMES` at the top of `client.js` to change this);
 - its due date is ticked complete;
 - it's archived or deleted.

@@ -8,7 +8,7 @@
 // A previous task counts as complete when it sits in a list with one of these
 // names (case-insensitive), when its due date is marked complete, or when it
 // has been archived / removed from the board.
-var DONE_LIST_NAMES = ['done', 'complete', 'completed', 'finished', 'shipped'];
+var DONE_LIST_NAMES = ['done', 'complete', 'completed', 'finished', 'shipped', 'archived'];
 
 // How often (seconds) badges re-check status while the board is open.
 var REFRESH_SECONDS = 10;
